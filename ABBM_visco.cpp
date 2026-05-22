@@ -68,7 +68,7 @@ double MD::force_at(int i, const std::vector<double>& h, double t){
 
     return (c / gamma) * lap
          + (k / gamma) * (V * t - h[i])
-         + (1.0 / gamma) * random_force(i, h[i]);
+         + (sqrt(2.0 * D) / gamma) * random_force(i, h[i]);
 }
 
 double MD::random_force(int I, double h_i){
@@ -149,12 +149,14 @@ void MD::one_step_RK4(int n, std::ofstream& ofs, double& u_old){
         u_av += (lat->site)[i].u / N;
     }
 
-    const double eps = 1e-3;
-    if (u_av > 5 && std::abs(u_av - u_old) > eps && u_av < 1000){
+    const double eps = du;
+
+    if (u_av > 5 && (u_av - u_old) > eps && u_av < 1000){
         ofs << n << " " << u_av << " " << k*(V*t - u_av) << std::endl;
+
+        u_old = u_av;
     }
 
-    u_old = u_av;
 }
 
 /*
