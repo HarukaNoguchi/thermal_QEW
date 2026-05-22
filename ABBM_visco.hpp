@@ -8,10 +8,10 @@ private:
   void makeini(int);
   void Eular(double,double,int,int);
   void one_step(int,std::ofstream&,int);
-  double random_force(int);
+  double random_force(int, double);
   double thermal_noise(int);
-
-
+  double force_at(int, const std::vector<double>&, double);
+  void one_step_RK4(int, std::ofstream&, double&);
   public:
   MD(void);
   ~MD(void);
@@ -19,7 +19,7 @@ private:
 
   int seed;
   double gamma=1;
-  double dt=0.01;
+  double dt=0.1;
   double k=1;
   double D=100;
   double V=1e-4;

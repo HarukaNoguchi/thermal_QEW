@@ -60,9 +60,19 @@ void MD::makeini(int seed) {
 
 }
 
-double MD::random_force(int I){
-    double u_I = (lat->site)[I].u;
-    double shifted_u = u_I + 10.0;
+double MD::force_at(int i, const std::vector<double>& h, double t){
+    int ip = (i + 1) % N;
+    int im = (i - 1 + N) % N;
+
+    double lap = h[ip] + h[im] - 2.0 * h[i];
+
+    return (c / gamma) * lap
+         + (k / gamma) * (V * t - h[i])
+         + (1.0 / gamma) * random_force(i, h[i]);
+}
+
+double MD::random_force(int I, double h_i){
+    double shifted_u = h_i + 10.0;
 
     const auto& noise = (lat->site)[I].noise;
     double umax = (noise.size() - 1) * du;
@@ -70,17 +80,18 @@ double MD::random_force(int I){
     if (shifted_u < 0.0) shifted_u = 0.0;
     if (shifted_u > umax) shifted_u = umax;
 
-    int i = int(floor(shifted_u / du));
+    int idx = int(floor(shifted_u / du));
 
-    if (i < 0) i = 0;
-    if (i + 1 >= noise.size()) i = noise.size() - 2;
+    if (idx < 0) idx = 0;
+    if (idx + 1 >= noise.size()) idx = noise.size() - 2;
 
-    double x = shifted_u - i * du;
-    double y = (i + 1) * du - shifted_u;
+    double x = shifted_u - idx * du;
+    double alpha = x / du;
 
-    double f0 = noise[0];
-    return ( (noise[i+1] - noise[i])*x ) / du + noise[i];
+    return (1.0 - alpha) * noise[idx]
+        + alpha * noise[idx + 1];
 }
+
 
 double MD::thermal_noise(int seed){
     thread_local static std::mt19937_64 mt64(seed);
@@ -89,15 +100,71 @@ double MD::thermal_noise(int seed){
 }
 
 
+void MD::one_step_RK4(int n, std::ofstream& ofs, double& u_old){
+    double t = dt * n;
 
+    std::vector<double> h(N);
+    std::vector<double> k1(N), k2(N), k3(N), k4(N);
+    std::vector<double> h_tmp(N);
 
+    for (int i = 0; i < N; i++){
+        h[i] = (lat->site)[i].u;
+    }
+
+    for (int i = 0; i < N; i++){
+        k1[i] = force_at(i, h, t);
+    }
+
+    for (int i = 0; i < N; i++){
+        h_tmp[i] = h[i] + 0.5 * dt * k1[i];
+    }
+
+    for (int i = 0; i < N; i++){
+        k2[i] = force_at(i, h_tmp, t + 0.5 * dt);
+    }
+
+    for (int i = 0; i < N; i++){
+        h_tmp[i] = h[i] + 0.5 * dt * k2[i];
+    }
+
+    for (int i = 0; i < N; i++){
+        k3[i] = force_at(i, h_tmp, t + 0.5 * dt);
+    }
+
+    for (int i = 0; i < N; i++){
+        h_tmp[i] = h[i] + dt * k3[i];
+    }
+
+    for (int i = 0; i < N; i++){
+        k4[i] = force_at(i, h_tmp, t + dt);
+    }
+
+    for (int i = 0; i < N; i++){
+        (lat->site)[i].u =
+            h[i] + dt / 6.0 * (k1[i] + 2.0*k2[i] + 2.0*k3[i] + k4[i]);
+    }
+
+    double u_av = 0.0;
+    for (int i = 0; i < N; i++){
+        u_av += (lat->site)[i].u / N;
+    }
+
+    const double eps = 1e-3;
+    if (u_av > 5 && std::abs(u_av - u_old) > eps && u_av < 1000){
+        ofs << n << " " << u_av << " " << k*(V*t - u_av) << std::endl;
+    }
+
+    u_old = u_av;
+}
+
+/*
 void MD::Eular(double u_av,double t,int i,int seed){
     double elast_term=(c)*((lat->site)[((i+1)%N)].u+ (lat->site)[((i-1)%N+N)%N].u-2*((lat->site)[i].u));
     double u_new=(lat->site)[i].u+(dt)*((k*(V*t-(lat->site)[i].u)) + elast_term  
     +  std::sqrt(2*D)*random_force(i) +std::sqrt(2*T*dt)*thermal_noise(seed));
     (lat->site)[i].u=u_new;
 }
-
+*/
 
 
 /*void MD::one_step(int n,std::ofstream& ofs,int seed){
@@ -134,7 +201,7 @@ void MD::run(int seed)
 {   
     ///make file///
     int steps=1e8;
-    std::string filename1="./V_"+to_string_with_precision(V, 10) +"_N_"+std::to_string(N)+"_gamma_"+to_string_with_precision(gamma,6)+
+    std::string filename1="./RK_V_"+to_string_with_precision(V, 10) +"_N_"+std::to_string(N)+"_gamma_"+to_string_with_precision(gamma,6)+
     "_c_"+to_string_with_precision(c,6)+"_D_"+to_string_with_precision(D,6)+"_ck"+to_string_with_precision(k,6)+"_T_"+to_string_with_precision(T,6);
     cout<<filename1<<endl;
     
@@ -154,7 +221,8 @@ void MD::run(int seed)
 
 
     for (int t=0;t<steps;t++){
-        one_step(t,ofs_velocity,seed);
+        //one_step(t,ofs_velocity,seed);
+        one_step_RK4(t,ofs_velocity,u_old);
     }
 
     string front = "./" + filename2 + "/front_seed"+std::to_string(seed)+".dat";
